@@ -11,7 +11,8 @@ pipeline {
                         parameters: [
                             string(name: 'S3_BUCKET', description: 'Enter S3 Bucket Name'),
                             string(name: 'S3_ARN', description: 'Enter S3 Bucket ARN'),
-                            string(name: 'CLOUDFRONT_DISTRIBUTION_ID', description: 'Enter CloudFront Distribution ID')
+                            string(name: 'CLOUDFRONT_DISTRIBUTION_ID', description: 'Enter CloudFront Distribution ID'),
+                            string(name: 'GITHUB_REPO', description: 'Enter GitHub Repository URL')
                         ]
                     )
                     
@@ -19,6 +20,18 @@ pipeline {
                     env.S3_BUCKET = userInput.S3_BUCKET
                     env.S3_ARN = userInput.S3_ARN
                     env.CLOUDFRONT_DISTRIBUTION_ID = userInput.CLOUDFRONT_DISTRIBUTION_ID
+                    env.GITHUB_REPO = userInput.GITHUB_REPO
+                }
+            }
+        }
+
+        stage('Clone GitHub Repository') {
+            steps {
+                script {
+                    echo "Removing existing repository directory if it exists..."
+                    sh "rm -rf /home/ubuntu/myRepo"
+                    echo "Cloning GitHub repository..."
+                    sh "git clone ${env.GITHUB_REPO} /home/ubuntu/myRepo"
                 }
             }
         }
@@ -55,8 +68,8 @@ pipeline {
             steps {
                 script {
                     echo "Uploading files to S3 bucket..."
-                    // Copy only the contents of the myOwnWebsite directory
-                    sh "aws s3 sync /home/ubuntu/myOwnWebsite/ s3://${env.S3_BUCKET} --exclude 'Jenkinsfile'"
+                    // Copy only the contents of the cloned repository
+                    sh "aws s3 sync /home/ubuntu/myRepo/ s3://${env.S3_BUCKET} --exclude 'Jenkinsfile'"
                 }
             }
         }
@@ -87,6 +100,21 @@ pipeline {
                         aws cloudfront create-invalidation --distribution-id ${env.CLOUDFRONT_DISTRIBUTION_ID} --paths '/*'
                     """, returnStdout: true).trim()
                     echo "Invalidation response: ${invalidationResponse}"
+                }
+            }
+        }
+
+        stage('Output CloudFront Distribution Link') {
+            steps {
+                script {
+                    echo "Retrieving CloudFront distribution domain name..."
+                    // Use grep to get the DomainName directly from the AWS CLI command
+                    def domainName = sh(script: """
+                        aws cloudfront get-distribution --id ${env.CLOUDFRONT_DISTRIBUTION_ID} --output json | grep DomainName | awk -F '\"' '{print \$4}'
+                    """, returnStdout: true).trim()
+
+                    echo "CloudFront Distribution Domain Name: ${domainName}"
+                    echo "CloudFront Distribution Link: ${domainName}" // Changed to output just the domain name
                 }
             }
         }
